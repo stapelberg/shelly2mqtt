@@ -91,7 +91,7 @@ func shelly2mqtt() error {
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/requests/", trace.Traces)
 	mux.HandleFunc("/door/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("http: %s", r.URL.Path)
+		log.Printf("door http: %s", r.URL.Path)
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/door/"), "/")
 		if len(parts) != 2 {
 			log.Printf("parts = %q", parts)
@@ -123,6 +123,41 @@ func shelly2mqtt() error {
 			string(b))
 		log.Printf("published to MQTT")
 	})
+	for _, prefix := range []string{
+		"motion",
+	} {
+		prefix := prefix // copy
+		urlPrefix := "/" + prefix + "/"
+		mux.HandleFunc(urlPrefix, func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("%s http: %s", prefix, r.URL.Path)
+			parts := strings.Split(strings.TrimPrefix(r.URL.Path, urlPrefix), "/")
+			if len(parts) != 2 {
+				log.Printf("parts = %q", parts)
+				return
+			}
+			room := parts[0]
+			command := parts[1]
+			log.Printf("%s in room %q, command %q", prefix, room, command)
+
+			b, err := json.Marshal(struct {
+				Command string `json:"command"`
+			}{
+				Command: command,
+			})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				log.Print(err)
+				return
+			}
+
+			mqttClient.Publish(
+				*mqttPrefix+prefix+"/"+room,
+				0,    /* qos */
+				true, /* retained */
+				string(b))
+			log.Printf("published to MQTT")
+		})
+	}
 
 	log.Printf("http.ListenAndServe(%q)", *listenAddress)
 	if err := http.ListenAndServe(*listenAddress, mux); err != nil {
