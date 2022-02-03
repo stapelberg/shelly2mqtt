@@ -28,6 +28,45 @@ var (
 		"MQTT topic prefix")
 )
 
+func commandMessageHandler(_ mqtt.Client, m mqtt.Message) {
+	log.Printf("mqtt: %s: %q", m.Topic(), string(m.Payload()))
+	parts := strings.Split(strings.TrimPrefix(m.Topic(), *mqttPrefix+"cmd/relay/"), "/")
+	if len(parts) != 2 {
+		log.Printf("parts = %q", parts)
+		return
+	}
+	room := parts[0]
+	command := parts[1]
+
+	var u string
+	switch room {
+	case "bathroom":
+		u = "http://10.0.0.68/relay/0?turn=" + command
+	case "kitchen":
+	default:
+		log.Printf("unknown room: %q", room)
+	}
+	resp, err := http.Get(u)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("unexpected HTTP status: %v", resp.Status)
+	}
+}
+
+func subscribe(mqttClient mqtt.Client, topic string, hdl mqtt.MessageHandler) error {
+	const qosAtMostOnce = 0
+	log.Printf("Subscribing to %s", topic)
+	token := mqttClient.Subscribe(topic, qosAtMostOnce, hdl)
+	token.Wait()
+	if err := token.Error(); err != nil {
+		return fmt.Errorf("subscription failed: %v", err)
+	}
+	return nil
+}
+
 func shelly2mqtt() error {
 	opts := mqtt.NewClientOptions().AddBroker(*mqttBroker)
 	clientID := "https://github.com/stapelberg/shelly2mqtt"
@@ -36,6 +75,11 @@ func shelly2mqtt() error {
 	}
 	opts.SetClientID(clientID)
 	opts.SetConnectRetry(true)
+	opts.OnConnect = func(c mqtt.Client) {
+		if err := subscribe(c, *mqttPrefix+"cmd/relay/#", commandMessageHandler); err != nil {
+			log.Print(err)
+		}
+	}
 	mqttClient := mqtt.NewClient(opts)
 	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
 		return fmt.Errorf("MQTT connection failed: %v", token.Error())
