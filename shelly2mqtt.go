@@ -43,6 +43,7 @@ func commandMessageHandler(_ mqtt.Client, m mqtt.Message) {
 	case "bathroom":
 		u = "http://10.0.0.68/relay/0?turn=" + command
 	case "kitchen":
+		u = "http://10.0.0.11/relay/0?turn=" + command
 	default:
 		log.Printf("unknown room: %q", room)
 	}
