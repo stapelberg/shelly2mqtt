@@ -28,7 +28,7 @@ var (
 		"MQTT topic prefix")
 )
 
-func commandMessageHandler(_ mqtt.Client, m mqtt.Message) {
+func relayCommandHandler(_ mqtt.Client, m mqtt.Message) {
 	log.Printf("mqtt: %s: %q", m.Topic(), string(m.Payload()))
 	parts := strings.Split(strings.TrimPrefix(m.Topic(), *mqttPrefix+"cmd/relay/"), "/")
 	if len(parts) != 2 {
@@ -44,6 +44,34 @@ func commandMessageHandler(_ mqtt.Client, m mqtt.Message) {
 		u = "http://10.0.0.68/relay/0?turn=" + command
 	case "kitchen":
 		u = "http://10.0.0.11/relay/0?turn=" + command
+	default:
+		log.Printf("unknown room: %q", room)
+	}
+	resp, err := http.Get(u)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("unexpected HTTP status: %v", resp.Status)
+	}
+}
+
+func resetCommandHandler(_ mqtt.Client, m mqtt.Message) {
+	log.Printf("mqtt: %s: %q", m.Topic(), string(m.Payload()))
+	parts := strings.Split(strings.TrimPrefix(m.Topic(), *mqttPrefix+"cmd/reset/"), "/")
+	if len(parts) != 2 {
+		log.Printf("parts = %q", parts)
+		return
+	}
+	room := parts[0]
+
+	var u string
+	switch room {
+	case "bathroom":
+		u = "http://shellymotionsensor-588e81a63297/settings/actions?index=0&enabled=true&name=motion_off"
+	case "kitchen":
+		u = "http://shellymotionsensor-60a423beb736/settings/actions?index=0&enabled=true&name=motion_off"
 	default:
 		log.Printf("unknown room: %q", room)
 	}
@@ -77,7 +105,10 @@ func shelly2mqtt() error {
 	opts.SetClientID(clientID)
 	opts.SetConnectRetry(true)
 	opts.OnConnect = func(c mqtt.Client) {
-		if err := subscribe(c, *mqttPrefix+"cmd/relay/#", commandMessageHandler); err != nil {
+		if err := subscribe(c, *mqttPrefix+"cmd/relay/#", relayCommandHandler); err != nil {
+			log.Print(err)
+		}
+		if err := subscribe(c, *mqttPrefix+"cmd/reset/#", resetCommandHandler); err != nil {
 			log.Print(err)
 		}
 	}
